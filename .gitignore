@@ -1,0 +1,12 @@
+target/
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.env
+.env.local
+*.log
+logs/
+.DS_Store
+Thumbs.db
