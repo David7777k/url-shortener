@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.Optional;
 
 @Service
 public class LinkService {
@@ -27,17 +28,20 @@ public class LinkService {
 
     private final LinkRepository linkRepository;
     private final LinkWriter linkWriter;
+    private final LinkCache cache;
     private final CodeGenerator codeGenerator;
     private final TargetUrlValidator targetUrlValidator;
     private final Clock clock;
 
     public LinkService(LinkRepository linkRepository,
                        LinkWriter linkWriter,
+                       LinkCache cache,
                        CodeGenerator codeGenerator,
                        TargetUrlValidator targetUrlValidator,
                        Clock clock) {
         this.linkRepository = linkRepository;
         this.linkWriter = linkWriter;
+        this.cache = cache;
         this.codeGenerator = codeGenerator;
         this.targetUrlValidator = targetUrlValidator;
         this.clock = clock;
@@ -48,8 +52,7 @@ public class LinkService {
      *
      * <p>The retry is driven by the unique index rather than by a prior
      * "is this code free?" query. Checking first is a read followed by a write,
-     * and two requests can pass the check before either inserts. Letting the
-     * insert fail is the only version that cannot race.
+     * and two requests can pass the check before either inserts.
      *
      * <p>Each attempt is its own transaction, in a separate bean - see
      * {@link LinkWriter} for why that matters.
@@ -58,9 +61,16 @@ public class LinkService {
         String target = targetUrlValidator.validate(request.targetUrl());
 
         for (int attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+            String code = codeGenerator.generate();
             try {
-                return LinkResponse.from(linkWriter.insert(
-                        codeGenerator.generate(), target, createdBy, request.expiresAt()));
+                Link link = linkWriter.insert(code, target, createdBy, request.expiresAt());
+
+                // Somebody may have asked for this code before it existed and
+                // had the miss cached. Unlikely with random codes, but the
+                // consequence would be a live link answering 404 for a minute.
+                cache.evict(code);
+
+                return LinkResponse.from(link);
             } catch (DataIntegrityViolationException collision) {
                 log.debug("Code collision on attempt {}", attempt);
             }
@@ -70,18 +80,42 @@ public class LinkService {
     }
 
     /**
-     * Resolves a code to its target.
+     * Resolves a code to its target. This is the hot path.
      *
-     * <p>An expired link answers 410 rather than 404: it existed, and saying so
-     * is more useful than pretending it never did.
+     * <p>Cache-aside: ask the cache, fall through to the database on a miss,
+     * then populate. Write-through is the alternative, but links are read far
+     * more often than written, and it would put the cache on the critical path
+     * of creation - where a Redis failure would then fail the write.
+     *
+     * <p>Links that expire are deliberately not cached. Caching one means
+     * serving it after it lapses, and the TTL arithmetic needed to avoid that
+     * buys nothing: links with an expiry are the rare case.
      */
     @Transactional(readOnly = true)
     public String resolve(String code) {
-        Link link = linkRepository.findByCode(code)
-                .orElseThrow(() -> new LinkNotFoundException(code));
+        Optional<LinkCache.Hit> cached = cache.lookup(code);
+        if (cached.isPresent()) {
+            LinkCache.Hit hit = cached.get();
+            if (hit.isMissing()) {
+                throw new LinkNotFoundException(code);
+            }
+            return hit.targetUrl();
+        }
 
+        Optional<Link> found = linkRepository.findByCode(code);
+
+        if (found.isEmpty()) {
+            cache.putMissing(code);
+            throw new LinkNotFoundException(code);
+        }
+
+        Link link = found.get();
         if (link.isExpiredAt(clock.instant())) {
             throw new LinkExpiredException(code);
+        }
+
+        if (link.getExpiresAt() == null) {
+            cache.put(code, link.getTargetUrl());
         }
 
         return link.getTargetUrl();
@@ -91,5 +125,22 @@ public class LinkService {
     public LinkResponse get(String code) {
         return LinkResponse.from(linkRepository.findByCode(code)
                 .orElseThrow(() -> new LinkNotFoundException(code)));
+    }
+
+    /**
+     * Deletes a link and drops it from the cache.
+     *
+     * <p>A stale entry would keep redirecting to a target the owner removed,
+     * which is the one cache inconsistency here with a real consequence.
+     */
+    @Transactional
+    public void delete(String code) {
+        Link link = linkRepository.findByCode(code)
+                .orElseThrow(() -> new LinkNotFoundException(code));
+
+        linkRepository.delete(link);
+        cache.evict(code);
+
+        log.debug("Deleted link {}", code);
     }
 }
