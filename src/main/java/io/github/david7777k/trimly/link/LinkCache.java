@@ -48,12 +48,21 @@ public class LinkCache {
     private final Duration ttl;
     private final Duration missingTtl;
 
+    /**
+     * Lets the cache be switched off without removing it, so the same build can
+     * be measured with and without. A benchmark comparing two different builds
+     * measures the difference between the builds as much as the cache.
+     */
+    private final boolean enabled;
+
     public LinkCache(StringRedisTemplate redis,
                      @Value("${trimly.cache.ttl:PT1H}") Duration ttl,
-                     @Value("${trimly.cache.missing-ttl:PT1M}") Duration missingTtl) {
+                     @Value("${trimly.cache.missing-ttl:PT1M}") Duration missingTtl,
+                     @Value("${trimly.cache.enabled:true}") boolean enabled) {
         this.redis = redis;
         this.ttl = ttl;
         this.missingTtl = missingTtl;
+        this.enabled = enabled;
     }
 
     /**
@@ -61,6 +70,9 @@ public class LinkCache {
      *         the link or records that the code does not exist
      */
     public Optional<Hit> lookup(String code) {
+        if (!enabled) {
+            return Optional.empty();
+        }
         try {
             String cached = redis.opsForValue().get(key(code));
             if (cached == null) {
@@ -95,6 +107,9 @@ public class LinkCache {
     }
 
     private void write(String code, String value, Duration expiry) {
+        if (!enabled) {
+            return;
+        }
         try {
             redis.opsForValue().set(key(code), value, expiry);
         } catch (DataAccessException e) {
