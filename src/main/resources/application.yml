@@ -46,3 +46,13 @@ trimly:
     queue-capacity: 10000
     batch-size: 500
     flush-interval: PT1S
+
+  rate-limit:
+    # Capacity is the burst a client may spend at once; refill is the sustained
+    # rate it settles into.
+    capacity: 20
+    refill-per-second: 1
+    key-ttl-seconds: 3600
+    # Let requests through when the limiter backend is down. See RateLimiter
+    # for when the opposite is the right choice.
+    fail-open: true
