@@ -11,13 +11,20 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Caches the one thing the redirect needs: code to target URL.
+ * Caches what the redirect needs: the target URL and the link id.
+ *
+ * <p>The id is cached alongside the URL because recording a click needs it.
+ * Without it every redirect would still hit the database to find out which link
+ * it belonged to, which is the query the cache exists to avoid.
+ *
+ * <p>Stored as {@code id|url} rather than JSON. The value is two fields written
+ * and read in one place, and a serialiser would be more machinery than the
+ * problem has.
  *
  * <p>Every method swallows Redis failures. The cache exists to spare the
- * database, not to be a dependency of its own - if Redis is unreachable the
- * service should get slower, not stop. Short client timeouts back that up: a
- * cache that takes longer to answer than the query it replaces is worse than no
- * cache.
+ * database, not to become a dependency - if Redis is unreachable the service
+ * should get slower, not stop. Short client timeouts back that up: a cache that
+ * answers slower than the query it replaces is worse than no cache.
  */
 @Component
 public class LinkCache {
@@ -25,14 +32,15 @@ public class LinkCache {
     private static final Logger log = LoggerFactory.getLogger(LinkCache.class);
 
     private static final String KEY_PREFIX = "link:";
+    private static final char SEPARATOR = '|';
 
     /**
-     * Marks a code that is known not to exist.
+     * Marks a code known not to exist.
      *
-     * <p>Without remembering misses, a flood of requests for codes that were
-     * never issued walks straight past the cache into the database every time -
-     * the cache is useless precisely when it is needed most. Not a valid target,
-     * since a stored URL always begins with http.
+     * <p>Without remembering misses, requests for codes that were never issued
+     * reach the database every time - the cache stops helping exactly when it
+     * faces the most junk traffic. Not a valid value, since a real one starts
+     * with a numeric id.
      */
     private static final String MISSING = "\u0000missing";
 
@@ -50,7 +58,7 @@ public class LinkCache {
 
     /**
      * @return empty when nothing is cached, otherwise a hit that either carries
-     *         the target or records that the code does not exist
+     *         the link or records that the code does not exist
      */
     public Optional<Hit> lookup(String code) {
         try {
@@ -58,15 +66,18 @@ public class LinkCache {
             if (cached == null) {
                 return Optional.empty();
             }
-            return Optional.of(MISSING.equals(cached) ? Hit.missing() : Hit.of(cached));
+            if (MISSING.equals(cached)) {
+                return Optional.of(Hit.missing());
+            }
+            return Optional.of(parse(cached));
         } catch (DataAccessException e) {
             log.warn("Cache lookup failed for {}, falling through to the database", code);
             return Optional.empty();
         }
     }
 
-    public void put(String code, String targetUrl) {
-        write(code, targetUrl, ttl);
+    public void put(String code, long linkId, String targetUrl) {
+        write(code, linkId + String.valueOf(SEPARATOR) + targetUrl, ttl);
     }
 
     public void putMissing(String code) {
@@ -77,7 +88,7 @@ public class LinkCache {
         try {
             redis.delete(key(code));
         } catch (DataAccessException e) {
-            // The entry will expire on its own. Worth a warning, not a failure:
+            // The entry expires on its own. Worth a warning, not a failure:
             // refusing the delete because the cache is down would be worse.
             log.warn("Cache eviction failed for {}", code);
         }
@@ -91,19 +102,31 @@ public class LinkCache {
         }
     }
 
+    private static Hit parse(String cached) {
+        int separator = cached.indexOf(SEPARATOR);
+        if (separator <= 0) {
+            // Written by an older version, or corrupted. Treating it as a miss
+            // costs one database query; trusting it could redirect somewhere
+            // unintended.
+            return Hit.missing();
+        }
+        try {
+            long linkId = Long.parseLong(cached.substring(0, separator));
+            return new Hit(linkId, cached.substring(separator + 1));
+        } catch (NumberFormatException e) {
+            return Hit.missing();
+        }
+    }
+
     private static String key(String code) {
         return KEY_PREFIX + code;
     }
 
-    /** A cached answer: either a target, or the knowledge that there is none. */
-    public record Hit(String targetUrl) {
-
-        static Hit of(String targetUrl) {
-            return new Hit(targetUrl);
-        }
+    /** A cached answer: either a link, or the knowledge that there is none. */
+    public record Hit(Long linkId, String targetUrl) {
 
         static Hit missing() {
-            return new Hit(null);
+            return new Hit(null, null);
         }
 
         public boolean isMissing() {
