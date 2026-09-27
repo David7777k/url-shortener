@@ -33,8 +33,11 @@ class LinkCacheTest extends AbstractIntegrationTest {
 
         mockMvc.perform(get("/{code}", code)).andExpect(status().isFound());
 
+        // Stored as "id|url": recording a click needs the id, and looking it
+        // up separately would be the query the cache exists to avoid.
         assertThat(redisTemplate.opsForValue().get("link:" + code))
-                .isEqualTo("https://example.com/target");
+                .endsWith("|https://example.com/target")
+                .matches("^\\d+\\|.+$");
     }
 
     @Test

@@ -39,3 +39,10 @@ trimly:
     # Much shorter for "no such code". A wrong guess should not be remembered
     # for an hour, and the entry exists only to absorb floods of junk lookups.
     missing-ttl: PT1M
+
+  clicks:
+    # Bounded. When it fills, events are dropped rather than made to wait -
+    # analytics are worth less than the redirect they describe.
+    queue-capacity: 10000
+    batch-size: 500
+    flush-interval: PT1S

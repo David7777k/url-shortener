@@ -92,14 +92,14 @@ public class LinkService {
      * buys nothing: links with an expiry are the rare case.
      */
     @Transactional(readOnly = true)
-    public String resolve(String code) {
+    public ResolvedLink resolve(String code) {
         Optional<LinkCache.Hit> cached = cache.lookup(code);
         if (cached.isPresent()) {
             LinkCache.Hit hit = cached.get();
             if (hit.isMissing()) {
                 throw new LinkNotFoundException(code);
             }
-            return hit.targetUrl();
+            return new ResolvedLink(hit.linkId(), hit.targetUrl());
         }
 
         Optional<Link> found = linkRepository.findByCode(code);
@@ -115,10 +115,10 @@ public class LinkService {
         }
 
         if (link.getExpiresAt() == null) {
-            cache.put(code, link.getTargetUrl());
+            cache.put(code, link.getId(), link.getTargetUrl());
         }
 
-        return link.getTargetUrl();
+        return new ResolvedLink(link.getId(), link.getTargetUrl());
     }
 
     @Transactional(readOnly = true)
