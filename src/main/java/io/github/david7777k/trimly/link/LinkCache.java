@@ -81,7 +81,7 @@ public class LinkCache {
             if (MISSING.equals(cached)) {
                 return Optional.of(Hit.missing());
             }
-            return Optional.of(parse(cached));
+            return Optional.ofNullable(parse(cached));
         } catch (DataAccessException e) {
             log.warn("Cache lookup failed for {}, falling through to the database", code);
             return Optional.empty();
@@ -123,13 +123,15 @@ public class LinkCache {
             // Written by an older version, or corrupted. Treating it as a miss
             // costs one database query; trusting it could redirect somewhere
             // unintended.
-            return Hit.missing();
+            return null;
         }
         try {
             long linkId = Long.parseLong(cached.substring(0, separator));
-            return new Hit(linkId, cached.substring(separator + 1));
+            String url = cached.substring(separator + 1);
+            if (linkId <= 0 || !(url.startsWith("https://") || url.startsWith("http://"))) return null;
+            return new Hit(linkId, url);
         } catch (NumberFormatException e) {
-            return Hit.missing();
+            return null;
         }
     }
 

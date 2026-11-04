@@ -29,7 +29,7 @@ server:
 
 logging:
   level:
-    io.github.david7777k.trimly: DEBUG
+    io.github.david7777k.trimly: INFO
 
 trimly:
   cache:

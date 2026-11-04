@@ -27,7 +27,6 @@ import java.io.IOException;
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final String LIMITED_PATH = "/api/v1/links";
-    private static final String API_KEY_HEADER = "X-API-Key";
 
     private final RateLimiter rateLimiter;
 
@@ -67,21 +66,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 """.formatted(decision.retryAfterSeconds()));
     }
 
-    /**
-     * Identifies the caller by API key, falling back to the remote address.
-     *
-     * <p>{@code X-Forwarded-For} is deliberately not trusted. Behind a proxy it
-     * is the real client address, but it is a header a client can set, so
-     * honouring it without knowing the proxy is in front means anyone can
-     * change their identity and reset their own bucket. Behind a real proxy
-     * this needs {@code server.forward-headers-strategy} configured, which is
-     * a deployment decision rather than something to assume.
-     */
+    // Use the transport address. Unverified client headers cannot select a fresh bucket.
     private static String clientId(HttpServletRequest request) {
-        String apiKey = request.getHeader(API_KEY_HEADER);
-        if (apiKey != null && !apiKey.isBlank()) {
-            return "key:" + apiKey;
-        }
         return "ip:" + request.getRemoteAddr();
     }
 }

@@ -4,6 +4,9 @@ import io.github.david7777k.trimly.click.ClickStatsResponse;
 import io.github.david7777k.trimly.click.ClickStatsService;
 import io.github.david7777k.trimly.link.LinkService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,6 +26,11 @@ import java.net.URI;
 @RequestMapping("/api/v1/links")
 public class LinkController {
 
+    @org.springframework.web.bind.annotation.ModelAttribute
+    public void preventManagementResponseCaching(jakarta.servlet.http.HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+    }
+
     private final LinkService linkService;
     private final ClickStatsService clickStatsService;
 
@@ -39,24 +47,30 @@ public class LinkController {
                 .buildAndExpand(link.code())
                 .toUri();
 
-        return ResponseEntity.created(location).body(link);
+        return ResponseEntity.created(location).header("Cache-Control", "no-store").body(link);
     }
 
     @GetMapping("/{code}")
-    public LinkResponse getLink(@PathVariable String code) {
+    public LinkResponse getLink(@PathVariable String code,
+            @RequestHeader(value = "X-Management-Token", required = false) String token) {
+        linkService.requireManagementAccess(code, token);
         return linkService.get(code);
     }
 
     @GetMapping("/{code}/stats")
     public ClickStatsResponse getStats(
             @PathVariable String code,
-            @RequestParam(defaultValue = "30") int days) {
+            @RequestParam(defaultValue = "30") @Min(1) @Max(365) int days,
+            @RequestHeader(value = "X-Management-Token", required = false) String token) {
+        linkService.requireManagementAccess(code, token);
         return clickStatsService.statsFor(code, days);
     }
 
     @DeleteMapping("/{code}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteLink(@PathVariable String code) {
+    public void deleteLink(@PathVariable String code,
+            @RequestHeader(value = "X-Management-Token", required = false) String token) {
+        linkService.requireManagementAccess(code, token);
         linkService.delete(code);
     }
 }

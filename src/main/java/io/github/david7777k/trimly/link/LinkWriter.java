@@ -25,7 +25,9 @@ public class LinkWriter {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Link insert(String code, String targetUrl, String createdBy, Instant expiresAt) {
-        return linkRepository.saveAndFlush(new Link(code, targetUrl, createdBy, expiresAt));
+    public Link insert(String code, String targetUrl, String createdBy, Instant expiresAt, String tokenHash) {
+        Link link = new Link(code, targetUrl, createdBy, expiresAt);
+        link.setManagementTokenHash(tokenHash);
+        return linkRepository.saveAndFlush(link);
     }
 }

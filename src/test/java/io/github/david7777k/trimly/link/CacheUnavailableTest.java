@@ -99,12 +99,14 @@ class CacheUnavailableTest extends AbstractIntegrationTest {
         String code = create("https://example.com/doomed");
 
         // The eviction cannot reach Redis, which must not fail the delete.
-        mockMvc.perform(delete("/api/v1/links/{code}", code))
+        mockMvc.perform(delete("/api/v1/links/{code}", code).header("X-Management-Token", tokens.get(code)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/{code}", code))
                 .andExpect(status().isNotFound());
     }
+
+    private final java.util.Map<String, String> tokens = new java.util.HashMap<>();
 
     private String create(String target) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/links")
@@ -113,6 +115,10 @@ class CacheUnavailableTest extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
 
+        String body = result.getResponse().getContentAsString();
+        String code = body.replaceAll(".*\"code\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        String token = body.replaceAll(".*\"managementToken\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        tokens.put(code, token);
         return result.getResponse().getContentAsString()
                 .replaceAll(".*\"code\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }

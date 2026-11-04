@@ -87,7 +87,7 @@ class LinkCacheTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/{code}", code)).andExpect(status().isFound());
         assertThat(redisTemplate.opsForValue().get("link:" + code)).isNotNull();
 
-        mockMvc.perform(delete("/api/v1/links/{code}", code))
+        mockMvc.perform(delete("/api/v1/links/{code}", code).header("X-Management-Token", tokens.get(code)))
                 .andExpect(status().isNoContent());
 
         assertThat(redisTemplate.opsForValue().get("link:" + code)).isNull();
@@ -110,6 +110,8 @@ class LinkCacheTest extends AbstractIntegrationTest {
 
     // --- helpers --------------------------------------------------------------
 
+    private final java.util.Map<String, String> tokens = new java.util.HashMap<>();
+
     private String create(String target) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/links")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -117,6 +119,10 @@ class LinkCacheTest extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
 
+        String body = result.getResponse().getContentAsString();
+        String code = body.replaceAll(".*\"code\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        String token = body.replaceAll(".*\"managementToken\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        tokens.put(code, token);
         return result.getResponse().getContentAsString()
                 .replaceAll(".*\"code\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }

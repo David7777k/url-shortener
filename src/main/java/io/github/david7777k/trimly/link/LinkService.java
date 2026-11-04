@@ -59,18 +59,19 @@ public class LinkService {
      */
     public LinkResponse create(CreateLinkRequest request, String createdBy) {
         String target = targetUrlValidator.validate(request.targetUrl());
+        String token = ManagementToken.generate();
 
         for (int attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
             String code = codeGenerator.generate();
             try {
-                Link link = linkWriter.insert(code, target, createdBy, request.expiresAt());
+                Link link = linkWriter.insert(code, target, createdBy, request.expiresAt(), ManagementToken.hash(token));
 
                 // Somebody may have asked for this code before it existed and
                 // had the miss cached. Unlikely with random codes, but the
                 // consequence would be a live link answering 404 for a minute.
                 cache.evict(code);
 
-                return LinkResponse.from(link);
+                return new LinkResponse(link.getCode(), link.getTargetUrl(), link.getExpiresAt(), link.getCreatedAt(), token);
             } catch (DataIntegrityViolationException collision) {
                 log.debug("Code collision on attempt {}", attempt);
             }
@@ -119,6 +120,15 @@ public class LinkService {
         }
 
         return new ResolvedLink(link.getId(), link.getTargetUrl());
+    }
+
+    @Transactional(readOnly = true)
+    public void requireManagementAccess(String code, String token) {
+        Link link = linkRepository.findByCode(code)
+                .orElseThrow(() -> new LinkNotFoundException(code));
+        if (!ManagementToken.matches(token, link.getManagementTokenHash())) {
+            throw new LinkNotFoundException(code);
+        }
     }
 
     @Transactional(readOnly = true)

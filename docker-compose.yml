@@ -1,4 +1,22 @@
 services:
+  app:
+    build: .
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-trimly}
+      DB_USER: ${DB_USER:-trimly}
+      DB_PASSWORD: ${DB_PASSWORD:-trimly}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   postgres:
     image: postgres:17-alpine
     container_name: trimly-postgres
