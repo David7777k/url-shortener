@@ -135,7 +135,7 @@ class ClickAnalyticsTest extends AbstractIntegrationTest {
         }
         writer.flushOnce();
 
-        mockMvc.perform(get("/api/v1/links/{code}/stats", code))
+        mockMvc.perform(get("/api/v1/links/{code}/stats", code).header("X-Management-Token", tokens.get(code)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(code))
                 .andExpect(jsonPath("$.totalClicks").value(3));
@@ -151,7 +151,7 @@ class ClickAnalyticsTest extends AbstractIntegrationTest {
                 values (?, now() - interval '1 day'), (?, now() - interval '1 day'), (?, now())
                 """, linkId, linkId, linkId);
 
-        mockMvc.perform(get("/api/v1/links/{code}/stats", code))
+        mockMvc.perform(get("/api/v1/links/{code}/stats", code).header("X-Management-Token", tokens.get(code)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.byDay", hasSize(2)))
                 .andExpect(jsonPath("$.byDay[0].clicks").value(2))
@@ -170,7 +170,7 @@ class ClickAnalyticsTest extends AbstractIntegrationTest {
                        (?, now(), null)
                 """, linkId, linkId, linkId);
 
-        mockMvc.perform(get("/api/v1/links/{code}/stats", code))
+        mockMvc.perform(get("/api/v1/links/{code}/stats", code).header("X-Management-Token", tokens.get(code)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.topReferrers[0].source").value("https://news.example.org"))
                 .andExpect(jsonPath("$.topReferrers[0].clicks").value(2))
@@ -191,7 +191,7 @@ class ClickAnalyticsTest extends AbstractIntegrationTest {
         writer.flushOnce();
         assertThat(clickRows()).isEqualTo(1);
 
-        mockMvc.perform(delete("/api/v1/links/{code}", code))
+        mockMvc.perform(delete("/api/v1/links/{code}", code).header("X-Management-Token", tokens.get(code)))
                 .andExpect(status().isNoContent());
 
         // ON DELETE CASCADE, rather than orphaned rows nothing will ever read.
@@ -209,6 +209,8 @@ class ClickAnalyticsTest extends AbstractIntegrationTest {
                 "select id from link where code = ?", Long.class, code);
     }
 
+    private final java.util.Map<String, String> tokens = new java.util.HashMap<>();
+
     private String create(String target) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/links")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -216,6 +218,10 @@ class ClickAnalyticsTest extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
 
+        String body = result.getResponse().getContentAsString();
+        String code = body.replaceAll(".*\"code\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        String token = body.replaceAll(".*\"managementToken\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        tokens.put(code, token);
         return result.getResponse().getContentAsString()
                 .replaceAll(".*\"code\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }

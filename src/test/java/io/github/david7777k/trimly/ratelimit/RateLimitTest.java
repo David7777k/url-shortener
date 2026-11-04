@@ -96,9 +96,25 @@ class RateLimitTest extends AbstractIntegrationTest {
         }
     }
 
+    @Test
+    void changingUnverifiedHeadersDoesNotResetTheBucket() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/api/v1/links")
+                    .header("X-API-Key", "fake-" + i)
+                    .header("X-Forwarded-For", "192.0.2." + i)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"targetUrl\":\"https://example.com\"}"))
+                    .andExpect(status().isCreated());
+        }
+        mockMvc.perform(post("/api/v1/links").header("X-API-Key", "another-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUrl\":\"https://example.com\"}"))
+                .andExpect(status().isTooManyRequests());
+    }
+
     private ResultActions createAs(String apiKey) throws Exception {
         return mockMvc.perform(post("/api/v1/links")
-                .header("X-API-Key", apiKey)
+                .with(request -> { request.setRemoteAddr(apiKey); return request; })
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"targetUrl": "https://example.com"}

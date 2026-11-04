@@ -35,6 +35,12 @@ public class Link {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "management_token_hash", length = 64)
+    private String managementTokenHash;
+
+    public void setManagementTokenHash(String hash) { this.managementTokenHash = hash; }
+    public String getManagementTokenHash() { return managementTokenHash; }
+
     protected Link() {
     }
 
